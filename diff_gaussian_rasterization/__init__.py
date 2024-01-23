@@ -25,6 +25,7 @@ def rasterize_gaussians(
     rotations,
     cov3Ds_precomp,
     raster_settings,
+    se3_Tcw,
 ):
     return _RasterizeGaussians.apply(
         means3D,
@@ -36,6 +37,7 @@ def rasterize_gaussians(
         rotations,
         cov3Ds_precomp,
         raster_settings,
+        se3_Tcw,
     )
 
 
@@ -54,8 +56,6 @@ class _RasterizeGaussians(torch.autograd.Function):
         raster_settings,
         se3_Tcw,
     ):
-        # TODO: SE(3) T_cw convert to viewmatrix. Here?
-
         # Restructure arguments the way that the C++ lib expects them
         args = (
             raster_settings.bg,
@@ -149,7 +149,7 @@ class _RasterizeGaussians(torch.autograd.Function):
             num_rendered,
             binningBuffer,
             imgBuffer,
-            se_Tcw,
+            se3_Tcw,
         )
 
         # Compute gradients for relevant tensors by invoking backward method
@@ -165,6 +165,7 @@ class _RasterizeGaussians(torch.autograd.Function):
             grad_Tcw,
         ) = _C.rasterize_gaussians_backward(*args)
 
+        print(grad_Tcw)
         grads = (
             grad_means3D,
             grad_means2D,
@@ -175,6 +176,7 @@ class _RasterizeGaussians(torch.autograd.Function):
             grad_rotations,
             grad_cov3Ds_precomp,
             None,
+            grad_Tcw,
         )
 
         return grads
@@ -219,6 +221,7 @@ class GaussianRasterizer(nn.Module):
         scales=None,
         rotations=None,
         cov3D_precomp=None,
+        se3_Tcw=None,
     ):
         raster_settings = self.raster_settings
 
@@ -247,6 +250,8 @@ class GaussianRasterizer(nn.Module):
             rotations = torch.Tensor([])
         if cov3D_precomp is None:
             cov3D_precomp = torch.Tensor([])
+        if se3_Tcw is None:
+            se3_Tcw = torch.Tensor([])
 
         # Invoke C++/CUDA rasterization routine
         return rasterize_gaussians(
@@ -259,4 +264,5 @@ class GaussianRasterizer(nn.Module):
             rotations,
             cov3D_precomp,
             raster_settings,
+            se3_Tcw,
         )
