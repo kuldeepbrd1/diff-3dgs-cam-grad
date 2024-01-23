@@ -276,35 +276,24 @@ __global__ void computeCov2DCUDA(int P,
 
 	// -----------------------------------------------------------------------------
 	// Gradients of loss w.r.t. SE(3) view transform on the manifold
+	// -----------------------------------------------------------------------------
 	// See Matsuki et al. 2023, Eq. 3 & 4
 	// Here, we only compute the gradients of the view transform due to the covariance
 	// dL/dTcw = dL/dmeans_c * dmeans_c/dTcw  + dL/dW * dcov_c/dTcw
 	// Note: the dL/dmeans above is the part that affects the covariance
 
-	// // Gradients due to means in camera frame (first term above)
-	dL_dTcw[0] = dL_dtx;
-	dL_dTcw[1] = dL_dty;
-	dL_dTcw[2] = dL_dtz;
-	dL_dTcw[3] = -dL_dty * t.z + dL_dtz * t.y;
-	dL_dTcw[4] = dL_dtx * t.z - dL_dtz * t.x;
-	dL_dTcw[5] = -dL_dtx * t.y + dL_dty * t.x;
+	// // // Gradients due to means in camera frame (first term above)
+	// dL_dTcw[0] = dL_dtx;
+	// dL_dTcw[1] = dL_dty;
+	// dL_dTcw[2] = dL_dtz;
+	// dL_dTcw[3] = -dL_dty * t.z + dL_dtz * t.y;
+	// dL_dTcw[4] = dL_dtx * t.z - dL_dtz * t.x;
+	// dL_dTcw[5] = -dL_dtx * t.y + dL_dty * t.x;
 
 	// Gradients due to covariance (second term above)
-	// dL/dcov_c = dL/dW * dW/dcov_c
-
+	// dL/dW = dL/dT *dT/dW
 	// T = W * J
-	// DT/DW = J^T
-	// float dL_dW00 = J[0][0] * dL_dT00 + J[1][0] * dL_dT10;
-	// float dL_dW01 = J[0][0] * dL_dT01 + J[1][0] * dL_dT11;
-	// float dL_dW02 = J[0][0] * dL_dT02 + J[1][0] * dL_dT12;
-	// float dL_dW10 = J[0][1] * dL_dT00 + J[1][1] * dL_dT10;
-	// float dL_dW11 = J[0][1] * dL_dT01 + J[1][1] * dL_dT11;
-	// float dL_dW12 = J[0][1] * dL_dT02 + J[1][1] * dL_dT12;
-	// float dL_dW20 = J[0][2] * dL_dT00 + J[1][2] * dL_dT10;
-	// float dL_dW21 = J[0][2] * dL_dT01 + J[1][2] * dL_dT11;
-	// float dL_dW22 = J[0][2] * dL_dT02 + J[1][2] * dL_dT12;
-
-	// Because W matrix w.r.t representation of se3_logmap is in viewmatrix
+	// dL/dW = J^T * dL/dT
 	float dL_dW00 = J[0][0] * dL_dT00 + J[1][0] * dL_dT10;
 	float dL_dW10 = J[0][0] * dL_dT01 + J[1][0] * dL_dT11;
 	float dL_dW20 = J[0][0] * dL_dT02 + J[1][0] * dL_dT12;
@@ -315,37 +304,39 @@ __global__ void computeCov2DCUDA(int P,
 	float dL_dW12 = J[0][2] * dL_dT01 + J[1][2] * dL_dT11;
 	float dL_dW22 = J[0][2] * dL_dT02 + J[1][2] * dL_dT12;
 
-	// // Gradients of loss w.r.t SE(3) view transform on the manifold due to the 2D covariance
+	// // Gradients of loss w.r.t SE(3) view transform due to the 2D covariance
 	// dL_dTcw[0] += 0;
 	// dL_dTcw[1] += 0;
 	// dL_dTcw[2] += 0;
-	// dL_dTcw[3] += (dL_dW00 * 0 - dL_dW01 * W[2][0] + dL_dW02 * W[1][0]) +
-	// 			  (dL_dW10 * 0 - dL_dW11 * W[2][1] + dL_dW12 * W[1][1]) +
-	// 			  (dL_dW20 * 0 - dL_dW21 * W[2][2] + dL_dW22 * W[1][2]);
+	// dL_dTcw[3] += (dL_dW00 * 0 - dL_dW01 * W[0][2] + dL_dW02 * W[0][1]) +
+	// 			  (dL_dW10 * 0 - dL_dW11 * W[1][2] + dL_dW12 * W[1][1]) +
+	// 			  (dL_dW20 * 0 - dL_dW21 * W[2][2] + dL_dW22 * W[2][1]);
 
-	// dL_dTcw[4] += (dL_dW00 * W[2][0] + dL_dW01 * 0 - dL_dW02 * W[0][0]) +
-	// 			  (dL_dW10 * W[2][1] + dL_dW11 * 0 - dL_dW12 * W[0][1]) +
-	// 			  (dL_dW20 * W[2][2] + dL_dW21 * 0 - dL_dW22 * W[0][2]);
+	// dL_dTcw[4] += (dL_dW00 * W[0][2] + dL_dW01 * 0 - dL_dW02 * W[0][0]) +
+	// 			  (dL_dW10 * W[1][2] + dL_dW11 * 0 - dL_dW12 * W[1][0]) +
+	// 			  (dL_dW20 * W[2][2] + dL_dW21 * 0 - dL_dW22 * W[2][0]);
 
-	// dL_dTcw[5] += (-dL_dW00 * W[1][0] + dL_dW01 * W[0][0] + dL_dW02 * 0) +
-	// 			  (-dL_dW10 * W[1][1] + dL_dW11 * W[0][1] + dL_dW12 * 0) +
-	// 			  (-dL_dW20 * W[1][2] + dL_dW21 * W[0][2] + dL_dW22 * 0);
+	// dL_dTcw[5] += (-dL_dW00 * W[0][1] + dL_dW01 * W[0][0] + dL_dW02 * 0) +
+	// 			  (-dL_dW10 * W[1][1] + dL_dW11 * W[1][0] + dL_dW12 * 0) +
+	// 			  (-dL_dW20 * W[2][1] + dL_dW21 * W[2][0] + dL_dW22 * 0);
 
-	// DL_dTcw : Transposed rotation matrix
-	dL_dTcw[0] += 0;
-	dL_dTcw[1] += 0;
-	dL_dTcw[2] += 0;
-	dL_dTcw[3] += (dL_dW00 * 0 - dL_dW10 * W[2][0] + dL_dW20 * W[1][0]) +
-				  (dL_dW01 * 0 - dL_dW11 * W[2][1] + dL_dW21 * W[1][1]) +
-				  (dL_dW02 * 0 - dL_dW12 * W[2][2] + dL_dW22 * W[1][2]);
-
-	dL_dTcw[4] += (dL_dW00 * W[2][0] + dL_dW10 * 0 - dL_dW20 * W[0][0]) +
-				  (dL_dW01 * W[2][1] + dL_dW11 * 0 - dL_dW21 * W[0][1]) +
-				  (dL_dW02 * W[2][2] + dL_dW12 * 0 - dL_dW22 * W[0][2]);
-
-	dL_dTcw[5] += (-dL_dW00 * W[1][0] + dL_dW10 * W[0][0] + dL_dW20 * 0) +
-				  (-dL_dW01 * W[1][1] + dL_dW11 * W[0][1] + dL_dW21 * 0) +
-				  (-dL_dW02 * W[1][2] + dL_dW12 * W[0][2] + dL_dW22 * 0);
+	// ---------------- Gradients w.r.t Tcw ------------
+	//  Gradients for 3x4 elements due to 2D Covariance
+	// (1st gradient portion from 2D covariance -> 3D means(t))
+	// flattened_3x4_pose = {r00, r01, r02, r10, r11, r12,  r20, r21, r22, t0, t1, t2}
+	// dL/dTcw = dL/dcov_c * dcov_c/dW * dW/dTcw
+	dL_dTcw[0] += dL_dtx * t.x + dL_dW00;
+	dL_dTcw[1] += dL_dtx * t.y + dL_dW10;
+	dL_dTcw[2] += dL_dtx * t.z + dL_dW20;
+	dL_dTcw[3] += dL_dty * t.x + dL_dW01;
+	dL_dTcw[4] += dL_dty * t.y + dL_dW11;
+	dL_dTcw[5] += dL_dty * t.z + dL_dW21;
+	dL_dTcw[6] += dL_dtz * t.x + dL_dW02;
+	dL_dTcw[7] += dL_dtz * t.y + dL_dW12;
+	dL_dTcw[8] += dL_dtz * t.z + dL_dW22;
+	dL_dTcw[9] += dL_dtx;
+	dL_dTcw[10] += dL_dty;
+	dL_dTcw[11] += dL_dtz;
 }
 
 // Backward pass for the conversion of scale and rotation to a
@@ -469,20 +460,37 @@ __global__ void preprocessCUDA(
 	if (scales)
 		computeCov3D(idx, scales[idx], scale_modifier, rotations[idx], dL_dcov3D, dL_dscale, dL_drot);
 
+	float3 t = transformPoint4x3(m, view_matrix);
+	// ----------------- Gradients on manifold (Not working ) -------------
 	// Compute gradients of loss with respect to the SE(3) view transform due to
 	// the means dL/dTcw = dL/dmeans_c * dmeans_c/dTcw
 	// Note: the dL/dmeans above is the part that affects the 2D mean
 	// This is the second part of the computation, the first part is in
 	// the covariance computation kernel
-	// float3 dL_dmeanC = transformVec4x3Transpose({dL_dmean.x, dL_dmean.y, dL_dmean.z}, view_matrix);
-	// float3 t = transformPoint4x3(m, view_matrix);
 
-	// dL_dTcw[0] += dL_dmean.x;
-	// dL_dTcw[1] += dL_dmean.y;
-	// dL_dTcw[2] += dL_dmean.z;
-	// dL_dTcw[3] += -dL_dmean.y * t.z + dL_dmean.z * t.y;
-	// dL_dTcw[4] += dL_dmean.x * t.z - dL_dmean.z * t.x;
-	// dL_dTcw[5] += -dL_dmean.x * t.y + dL_dmean.y * t.x;
+	// dL_dTcw[0] += dL_dmeanC.x;
+	// dL_dTcw[1] += dL_dmeanC.y;
+	// dL_dTcw[2] += dL_dmeanC.z;
+	// dL_dTcw[3] += -dL_dmeanC.y * t.z + dL_dmeanC.z * t.y;
+	// dL_dTcw[4] += dL_dmeanC.x * t.z - dL_dmeanC.z * t.x;
+	// dL_dTcw[5] += -dL_dmeanC.x * t.y + dL_dmeanC.y * t.x;
+
+	// ---------------- Gradients w.r.t Tcw ------------
+	//  Gradients for 3x4 elements due to 2D means
+	// (2nd gradient portion from 2D means -> 3D means(t))
+	// flattened_3x4_pose = {r00, r01, r02, r10, r11, r12,  r20, r21, r22, t0, t1, t2}
+	dL_dTcw[0] += dL_dmean.x * t.x;
+	dL_dTcw[1] += dL_dmean.x * t.y;
+	dL_dTcw[2] += dL_dmean.x * t.z;
+	dL_dTcw[3] += dL_dmean.y * t.x;
+	dL_dTcw[4] += dL_dmean.y * t.y;
+	dL_dTcw[5] += dL_dmean.y * t.z;
+	dL_dTcw[6] += dL_dmean.z * t.x;
+	dL_dTcw[7] += dL_dmean.z * t.y;
+	dL_dTcw[8] += dL_dmean.z * t.z;
+	dL_dTcw[9] += dL_dmean.x;
+	dL_dTcw[10] += dL_dmean.y;
+	dL_dTcw[11] += dL_dmean.z;
 }
 
 // Backward version of the rendering procedure.

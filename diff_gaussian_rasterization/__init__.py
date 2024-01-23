@@ -164,8 +164,10 @@ class _RasterizeGaussians(torch.autograd.Function):
             grad_rotations,
             grad_Tcw,
         ) = _C.rasterize_gaussians_backward(*args)
-
+        # breakpoint()
         print(grad_Tcw)
+        # print(grad_means3D)
+
         grads = (
             grad_means3D,
             grad_means2D,
