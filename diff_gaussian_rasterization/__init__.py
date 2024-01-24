@@ -25,8 +25,24 @@ def rasterize_gaussians(
     rotations,
     cov3Ds_precomp,
     raster_settings,
-    se3_Tcw,
+    pose_1x7,
 ):
+    """Rasterize
+
+    Args:
+        means3D: 3D means                           [N, 3]
+        means2D: 2D means                           [N, 2]
+        sh: spherical harmonics                     [N, 9]
+        colors_precomp: precomputed colors          [N, 3]
+        opacities: opacities                        [N]
+        scales: scales                              [N, 3]
+        rotations: rotations                        [N, 4]
+        cov3Ds_precomp: precomputed 3D covariances  [N, 3, 3]
+        raster_settings: rasterization settings     [GaussianRasterizationSettings]
+        pose_1x7: pose [x, y, z, qw, qx, qy, qz]    [1, 7]
+
+
+    """
     return _RasterizeGaussians.apply(
         means3D,
         means2D,
@@ -37,7 +53,7 @@ def rasterize_gaussians(
         rotations,
         cov3Ds_precomp,
         raster_settings,
-        se3_Tcw,
+        pose_1x7,
     )
 
 
@@ -54,7 +70,7 @@ class _RasterizeGaussians(torch.autograd.Function):
         rotations,
         cov3Ds_precomp,
         raster_settings,
-        se3_Tcw,
+        pose_1x7,
     ):
         # Restructure arguments the way that the C++ lib expects them
         args = (
@@ -90,6 +106,9 @@ class _RasterizeGaussians(torch.autograd.Function):
             depth,
         ) = _C.rasterize_gaussians(*args)
 
+        # Save quaternion for backward
+        quaternion_wxyz = pose_1x7[:, 3:]
+
         # Keep relevant tensors for backward
         ctx.raster_settings = raster_settings
         ctx.num_rendered = num_rendered
@@ -104,7 +123,7 @@ class _RasterizeGaussians(torch.autograd.Function):
             geomBuffer,
             binningBuffer,
             imgBuffer,
-            se3_Tcw,
+            quaternion_wxyz,
         )
         return color, radii, depth
 
@@ -124,7 +143,7 @@ class _RasterizeGaussians(torch.autograd.Function):
             geomBuffer,
             binningBuffer,
             imgBuffer,
-            se3_Tcw,
+            quaternion_wxyz,
         ) = ctx.saved_tensors
 
         # Restructure args as C++ method expects them
@@ -149,7 +168,7 @@ class _RasterizeGaussians(torch.autograd.Function):
             num_rendered,
             binningBuffer,
             imgBuffer,
-            se3_Tcw,
+            quaternion_wxyz,
         )
 
         # Compute gradients for relevant tensors by invoking backward method
@@ -162,7 +181,7 @@ class _RasterizeGaussians(torch.autograd.Function):
             grad_sh,
             grad_scales,
             grad_rotations,
-            grad_Tcw,
+            grad_tq,
         ) = _C.rasterize_gaussians_backward(*args)
 
         grads = (
@@ -175,9 +194,8 @@ class _RasterizeGaussians(torch.autograd.Function):
             grad_rotations,
             grad_cov3Ds_precomp,
             None,
-            grad_Tcw,
+            grad_tq,
         )
-
         return grads
 
 
@@ -220,7 +238,7 @@ class GaussianRasterizer(nn.Module):
         scales=None,
         rotations=None,
         cov3D_precomp=None,
-        se3_Tcw=None,
+        pose_1x7=None,  # [x, y, z, qw, qx, qy, qz]
     ):
         raster_settings = self.raster_settings
 
@@ -249,8 +267,8 @@ class GaussianRasterizer(nn.Module):
             rotations = torch.Tensor([])
         if cov3D_precomp is None:
             cov3D_precomp = torch.Tensor([])
-        if se3_Tcw is None:
-            se3_Tcw = torch.Tensor([])
+        if pose_1x7 is None:
+            pose_1x7 = torch.Tensor([])
 
         # Invoke C++/CUDA rasterization routine
         return rasterize_gaussians(
@@ -263,5 +281,5 @@ class GaussianRasterizer(nn.Module):
             rotations,
             cov3D_precomp,
             raster_settings,
-            se3_Tcw,
+            pose_1x7,
         )

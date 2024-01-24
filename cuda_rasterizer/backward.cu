@@ -322,21 +322,35 @@ __global__ void computeCov2DCUDA(int P,
 
 	// ---------------- Gradients w.r.t Tcw ------------
 	//  Gradients for 3x4 elements due to 2D Covariance
-	// (1st gradient portion from 2D covariance -> 3D means(t))
-	// flattened_3x4_pose = {r00, r01, r02, r10, r11, r12,  r20, r21, r22, t0, t1, t2}
+	// Only the portion that affects the covariance by rotation
+	// dL/dTcw = dL/dcov_c * dcov_c/dW * dW/dTcw ; // (W = Rcw)
+	// flattened 3x4 pose vector: {r00, r01, r02, r10, r11, r12,  r20, r21, r22, t0, t1, t2}
+	dL_dTcw[0] = dL_dW00;
+	dL_dTcw[1] = dL_dW10;
+	dL_dTcw[2] = dL_dW20;
+	dL_dTcw[3] = dL_dW01;
+	dL_dTcw[4] = dL_dW11;
+	dL_dTcw[5] = dL_dW21;
+	dL_dTcw[6] = dL_dW02;
+	dL_dTcw[7] = dL_dW12;
+	dL_dTcw[8] = dL_dW22;
+	dL_dTcw[9] = 0;
+	dL_dTcw[10] = 0;
+	dL_dTcw[11] = 0;
+
 	// dL/dTcw = dL/dcov_c * dcov_c/dW * dW/dTcw
-	dL_dTcw[0] += dL_dtx * t.x + dL_dW00;
-	dL_dTcw[1] += dL_dtx * t.y + dL_dW10;
-	dL_dTcw[2] += dL_dtx * t.z + dL_dW20;
-	dL_dTcw[3] += dL_dty * t.x + dL_dW01;
-	dL_dTcw[4] += dL_dty * t.y + dL_dW11;
-	dL_dTcw[5] += dL_dty * t.z + dL_dW21;
-	dL_dTcw[6] += dL_dtz * t.x + dL_dW02;
-	dL_dTcw[7] += dL_dtz * t.y + dL_dW12;
-	dL_dTcw[8] += dL_dtz * t.z + dL_dW22;
-	dL_dTcw[9] += dL_dtx;
-	dL_dTcw[10] += dL_dty;
-	dL_dTcw[11] += dL_dtz;
+	// dL_dTcw[0] += dL_dtx * mean.x + dL_dW00;
+	// dL_dTcw[1] += dL_dtx * mean.y + dL_dW10;
+	// dL_dTcw[2] += dL_dtx * mean.z + dL_dW20;
+	// dL_dTcw[3] += dL_dty * mean.x + dL_dW01;
+	// dL_dTcw[4] += dL_dty * mean.y + dL_dW11;
+	// dL_dTcw[5] += dL_dty * mean.z + dL_dW21;
+	// dL_dTcw[6] += dL_dtz * mean.x + dL_dW02;
+	// dL_dTcw[7] += dL_dtz * mean.y + dL_dW12;
+	// dL_dTcw[8] += dL_dtz * mean.z + dL_dW22;
+	// dL_dTcw[9] += dL_dtx;
+	// dL_dTcw[10] += dL_dty;
+	// dL_dTcw[11] += dL_dtz;
 }
 
 // Backward pass for the conversion of scale and rotation to a
@@ -427,7 +441,9 @@ __global__ void preprocessCUDA(
 	float *dL_dsh,
 	glm::vec3 *dL_dscale,
 	glm::vec4 *dL_drot,
-	float *dL_dTcw)
+	float *dL_dTcw,
+	float *dL_dtq,
+	const float *quat)
 {
 	auto idx = cg::this_grid().thread_rank();
 	if (idx >= P || !(radii[idx] > 0))
@@ -478,19 +494,52 @@ __global__ void preprocessCUDA(
 	// ---------------- Gradients w.r.t Tcw ------------
 	//  Gradients for 3x4 elements due to 2D means
 	// (2nd gradient portion from 2D means -> 3D means(t))
+	// dL/dTcw = dL/dt * dt/dTcw
 	// flattened_3x4_pose = {r00, r01, r02, r10, r11, r12,  r20, r21, r22, t0, t1, t2}
-	dL_dTcw[0] += dL_dmean.x * t.x;
-	dL_dTcw[1] += dL_dmean.x * t.y;
-	dL_dTcw[2] += dL_dmean.x * t.z;
-	dL_dTcw[3] += dL_dmean.y * t.x;
-	dL_dTcw[4] += dL_dmean.y * t.y;
-	dL_dTcw[5] += dL_dmean.y * t.z;
-	dL_dTcw[6] += dL_dmean.z * t.x;
-	dL_dTcw[7] += dL_dmean.z * t.y;
-	dL_dTcw[8] += dL_dmean.z * t.z;
-	dL_dTcw[9] += dL_dmean.x;
-	dL_dTcw[10] += dL_dmean.y;
-	dL_dTcw[11] += dL_dmean.z;
+	dL_dTcw[0] += dL_dmeans[idx].x * m.x;
+	dL_dTcw[1] += dL_dmeans[idx].x * m.y;
+	dL_dTcw[2] += dL_dmeans[idx].x * m.z;
+	dL_dTcw[3] += dL_dmeans[idx].y * m.x;
+	dL_dTcw[4] += dL_dmeans[idx].y * m.y;
+	dL_dTcw[5] += dL_dmeans[idx].y * m.z;
+	dL_dTcw[6] += dL_dmeans[idx].z * m.x;
+	dL_dTcw[7] += dL_dmeans[idx].z * m.y;
+	dL_dTcw[8] += dL_dmeans[idx].z * m.z;
+	dL_dTcw[9] += dL_dmeans[idx].x;
+	dL_dTcw[10] += dL_dmeans[idx].y;
+	dL_dTcw[11] += dL_dmeans[idx].z;
+
+	// ---------------- Gradients w.r.t t_cw and q_cw ------------
+	// q_cw is the normalized quaternion in wxyz format
+	// t_cw is the translation vector
+	// Take the gradient elements corresponding to the rotation
+	glm::mat3 dL_dRcw = glm::mat3(dL_dTcw[0], dL_dTcw[3], dL_dTcw[6],
+								  dL_dTcw[1], dL_dTcw[4], dL_dTcw[7],
+								  dL_dTcw[2], dL_dTcw[5], dL_dTcw[8]);
+	glm::mat3 dL_dRcwT = glm::transpose(dL_dRcw);
+
+	float w = quat[0];
+	float x = quat[1];
+	float y = quat[2];
+	float z = quat[3];
+
+	// dL/dq = dL/dRcw * dRcw/dq
+	glm::vec4 dL_dqcw;
+	dL_dqcw.w = 2 * z * (dL_dRcwT[0][1] - dL_dRcwT[1][0]) + 2 * y * (dL_dRcwT[2][0] - dL_dRcwT[0][2]) + 2 * x * (dL_dRcwT[1][2] - dL_dRcwT[2][1]);
+	dL_dqcw.x = 2 * y * (dL_dRcwT[1][0] + dL_dRcwT[0][1]) + 2 * z * (dL_dRcwT[2][0] + dL_dRcwT[0][2]) + 2 * w * (dL_dRcwT[1][2] - dL_dRcwT[2][1]) - 4 * x * (dL_dRcwT[2][2] + dL_dRcwT[1][1]);
+	dL_dqcw.y = 2 * x * (dL_dRcwT[1][0] + dL_dRcwT[0][1]) + 2 * w * (dL_dRcwT[2][0] - dL_dRcwT[0][2]) + 2 * z * (dL_dRcwT[1][2] + dL_dRcwT[2][1]) - 4 * y * (dL_dRcwT[2][2] + dL_dRcwT[0][0]);
+	dL_dqcw.z = 2 * w * (dL_dRcwT[0][1] - dL_dRcwT[1][0]) + 2 * x * (dL_dRcwT[2][0] + dL_dRcwT[0][2]) + 2 * y * (dL_dRcwT[1][2] + dL_dRcwT[2][1]) - 4 * z * (dL_dRcwT[1][1] + dL_dRcwT[0][0]);
+
+	// Gradients of loss w.r.t. translation
+	dL_dtq[0] += -dL_dTcw[9];
+	dL_dtq[1] += -dL_dTcw[10];
+	dL_dtq[2] += -dL_dTcw[11];
+
+	// Gradients of loss w.r.t. quaternion
+	dL_dtq[3] += dL_dqcw.w;
+	dL_dtq[4] += dL_dqcw.x;
+	dL_dtq[5] += dL_dqcw.y;
+	dL_dtq[6] += dL_dqcw.z;
 }
 
 // Backward version of the rendering procedure.
@@ -676,7 +725,9 @@ void BACKWARD::preprocess(
 	float *dL_dsh,
 	glm::vec3 *dL_dscale,
 	glm::vec4 *dL_drot,
-	float *dL_dTcw)
+	float *dL_dTcw,
+	float *dL_dtq,
+	const float *quat_wxyz)
 {
 	// Propagate gradients for the path of 2D conic matrix computation.
 	// Somewhat long, thus it is its own kernel rather than being part of
@@ -719,7 +770,9 @@ void BACKWARD::preprocess(
 		dL_dsh,
 		dL_dscale,
 		dL_drot,
-		dL_dTcw);
+		dL_dTcw,
+		dL_dtq,
+		quat_wxyz);
 }
 
 void BACKWARD::render(

@@ -139,7 +139,8 @@ RasterizeGaussiansBackwardCUDA(
 	const int R,
 	const torch::Tensor &binningBuffer,
 	const torch::Tensor &imageBuffer,
-	const torch::Tensor &se3_Tcw)
+	// const torch::Tensor &se3_Tcw,
+	const torch::Tensor &quat_cw)
 {
 	const int P = means3D.size(0);
 	const int H = dL_dout_color.size(1);
@@ -161,6 +162,7 @@ RasterizeGaussiansBackwardCUDA(
 	torch::Tensor dL_dscales = torch::zeros({P, 3}, means3D.options());
 	torch::Tensor dL_drotations = torch::zeros({P, 4}, means3D.options());
 	torch::Tensor dL_dTcw = torch::zeros({1, 12}, means3D.options());
+	torch::Tensor dL_dtq = torch::zeros({1, 7}, means3D.options());
 
 	if (P != 0)
 	{
@@ -193,10 +195,12 @@ RasterizeGaussiansBackwardCUDA(
 											 dL_dsh.contiguous().data<float>(),
 											 dL_dscales.contiguous().data<float>(),
 											 dL_drotations.contiguous().data<float>(),
-											 dL_dTcw.contiguous().data<float>());
+											 dL_dTcw.contiguous().data<float>(),
+											 dL_dtq.contiguous().data<float>(),
+											 quat_cw.contiguous().data<float>());
 	}
 
-	return std::make_tuple(dL_dmeans2D, dL_dcolors, dL_dopacity, dL_dmeans3D, dL_dcov3D, dL_dsh, dL_dscales, dL_drotations, dL_dTcw);
+	return std::make_tuple(dL_dmeans2D, dL_dcolors, dL_dopacity, dL_dmeans3D, dL_dcov3D, dL_dsh, dL_dscales, dL_drotations, dL_dtq);
 }
 
 torch::Tensor markVisible(
