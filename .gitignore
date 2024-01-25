@@ -2,3 +2,6 @@ build/
 diff_gaussian_rasterization.egg-info/
 dist/
 .idea/
+__pycache__
+*.pyc
+_C* 
